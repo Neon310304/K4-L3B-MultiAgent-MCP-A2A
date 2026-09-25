@@ -20,6 +20,8 @@ class CaseSet:
 
 
 def _object(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        raise ValueError(f"{path}: missing")
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:

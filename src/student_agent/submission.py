@@ -14,6 +14,15 @@ from .contracts import Contracts
 SECRET_PATTERN = re.compile(r"sk-team-[A-Za-z0-9_-]{8,}")
 MAX_FILE_BYTES = 1024 * 1024
 MAX_SUBMISSION_BYTES = 12 * 1024 * 1024
+LIFECYCLE = (
+    "case_received",
+    "task_assigned",
+    "tool_result_consumed",
+    "handoff",
+    "policy_decided",
+    "verification_completed",
+    "case_finalized",
+)
 
 
 def _json_object(path: Path) -> dict[str, Any]:
@@ -35,7 +44,7 @@ def build_manifest(case_set: CaseSet) -> dict[str, Any]:
         "output_schema_version": OUTPUT_SCHEMA_VERSION,
         "trace_schema_version": "day09-trace-event-v1",
         "generated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-        "client": {"name": "day09-student-starter", "version": "0.1.0"},
+        "client": {"name": "tran-quoc-vuong-l3b-agent", "version": "1.0.0"},
     }
 
 
@@ -65,6 +74,8 @@ def validate_artifacts(
         raise ValueError("traces/trace.jsonl is missing or not UTF-8") from exc
     normalized_lines: list[str] = []
     seen_events: set[str] = set()
+    events_by_case: dict[str, list[str]] = {case_id: [] for case_id in case_set.case_ids}
+    consumed_refs: dict[str, set[str]] = {case_id: set() for case_id in case_set.case_ids}
     for number, line in enumerate(trace_lines, 1):
         if not line.strip():
             continue
@@ -78,7 +89,37 @@ def validate_artifacts(
         if event["event_id"] in seen_events:
             raise ValueError(f"traces/trace.jsonl:{number}: duplicate event_id")
         seen_events.add(event["event_id"])
+        events_by_case[event["case_id"]].append(event["event_type"])
+        if event["event_type"] == "tool_result_consumed":
+            refs = event.get("evidence_refs", [])
+            if not event.get("tool_name") or not refs:
+                raise ValueError(
+                    f"traces/trace.jsonl:{number}: consumed tool result lacks tool/ref"
+                )
+            consumed_refs[event["case_id"]].update(refs)
         normalized_lines.append(json.dumps(event, ensure_ascii=False, separators=(",", ":")))
+
+    for case_id, events in events_by_case.items():
+        missing = [event_type for event_type in LIFECYCLE if event_type not in events]
+        if missing:
+            raise ValueError(f"trace lifecycle incomplete for {case_id}; missing={missing}")
+        position = -1
+        for event_type in LIFECYCLE:
+            try:
+                position = events.index(event_type, position + 1)
+            except ValueError:
+                raise ValueError(
+                    f"trace lifecycle out of order for {case_id}: {event_type}"
+                ) from None
+        if events[0] != "case_received" or events[-1] != "case_finalized":
+            raise ValueError(f"trace boundary events are invalid for {case_id}")
+        if events.count("case_received") != 1 or events.count("case_finalized") != 1:
+            raise ValueError(f"trace boundary events are duplicated for {case_id}")
+        unlinked = set(outputs[case_id]["evidence_refs"]) - consumed_refs[case_id]
+        if unlinked:
+            raise ValueError(
+                f"output evidence is not linked to trace for {case_id}: {sorted(unlinked)}"
+            )
 
     serialized = [json.dumps(value, ensure_ascii=False) for value in outputs.values()]
     if SECRET_PATTERN.search("\n".join([*serialized, *normalized_lines])):
@@ -114,7 +155,22 @@ def package_submission(root: Path, destination: Path) -> Path:
 
     destination = destination.resolve()
     destination.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+    temporary = destination.with_suffix(destination.suffix + ".tmp")
+    temporary.unlink(missing_ok=True)
+    with zipfile.ZipFile(temporary, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for name, payload in payloads.items():
             archive.writestr(name, payload)
+    with zipfile.ZipFile(temporary) as archive:
+        names = archive.namelist()
+        if len(names) != len(set(names)) or set(names) != set(payloads):
+            temporary.unlink(missing_ok=True)
+            raise ValueError("submission ZIP inventory does not match the contract")
+        if any(name.startswith(("/", "\\")) or ".." in Path(name).parts for name in names):
+            temporary.unlink(missing_ok=True)
+            raise ValueError("submission ZIP contains an unsafe path")
+        bad_payloads = [name for name, payload in payloads.items() if archive.read(name) != payload]
+        if bad_payloads:
+            temporary.unlink(missing_ok=True)
+            raise ValueError(f"submission ZIP payload verification failed: {bad_payloads}")
+    temporary.replace(destination)
     return destination

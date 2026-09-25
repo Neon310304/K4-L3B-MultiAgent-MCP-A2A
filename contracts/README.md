@@ -1,5 +1,10 @@
 # Day09 public contracts
 
+## Implementation record
+
+L3B implementation owner: Trần Quốc Vượng (`2A202602522`). The workflow
+consumes these public contracts without adding fields to the released schemas.
+
 Đây là nguồn chuẩn duy nhất cho các contract công khai của Day09 V2. Nội dung
 trong thư mục này được phát hành kèm repo học viên và được dùng bởi API, MCP
 gateway và submission validator.

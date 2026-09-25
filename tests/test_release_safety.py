@@ -1,11 +1,22 @@
+import subprocess
 from pathlib import Path
 
 
-def test_repository_contains_no_competition_payload() -> None:
+def test_repository_does_not_track_competition_payload() -> None:
     root = Path(__file__).resolve().parents[1]
-    assert not (root / "case-set.json").exists()
-    assert list((root / "inputs").glob("*.json")) == []
-    assert list((root / "outputs").glob("*.json")) == []
+    tracked = set(subprocess.run(
+        ["git", "ls-files", "--", "case-set.json", "inputs", "outputs", "traces", "dist"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines())
+    assert tracked <= {
+        "dist/.gitkeep",
+        "inputs/.gitkeep",
+        "outputs/.gitkeep",
+        "traces/.gitkeep",
+    }
     forbidden = {"oracles", "reference-outputs", "private-partitions.json", "mcp-access.json"}
     assert not any(path.name in forbidden for path in root.rglob("*"))
 

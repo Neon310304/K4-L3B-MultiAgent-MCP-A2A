@@ -28,6 +28,7 @@ dist/*
 !dist/.gitkeep
 *.zip
 *.log
+.day09-run-*/
 
 # Editors and operating systems
 .idea/

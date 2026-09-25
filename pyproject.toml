@@ -4,8 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "day09-l3b-student-agent"
-version = "0.1.0"
-description = "Starter kit for the Day09 L3B Multi-Agent MCP + A2A competition"
+version = "1.0.0"
+description = "Day09 L3B Multi-Agent MCP + A2A dispute investigation workflow"
+authors = [{name = "Trần Quốc Vượng"}]
 requires-python = ">=3.11"
 dependencies = [
     "httpx2>=2,<3",
